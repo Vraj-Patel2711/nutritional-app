@@ -1,16 +1,23 @@
+# ---------- Stage 1: Builder ----------
+FROM python:3.9-slim AS builder
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --user -r requirements.txt
+
+# ---------- Stage 2: Production ----------
 FROM python:3.9-slim
 
 WORKDIR /app
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy only installed dependencies
+COPY --from=builder /root/.local /root/.local
 
-# Copy application code
-COPY data_analysis.py .
-COPY All_Diets.csv .
+# Copy application files
+COPY . .
 
-# Create directory for outputs
-RUN mkdir -p /app/outputs
+# Ensure installed packages are in PATH
+ENV PATH=/root/.local/bin:$PATH
 
 CMD ["python", "data_analysis.py"]
