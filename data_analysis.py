@@ -4,127 +4,171 @@ import seaborn as sns
 import numpy as np
 from datetime import datetime
 import os
+import sys
 
-print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting nutritional analysis...")
 
-# Check if dataset exists
-if not os.path.exists('All_Diets.csv'):
-    print("ERROR: All_Diets.csv not found in current directory!")
-    print(f"Current directory: {os.getcwd()}")
-    print("Please download the dataset from Kaggle and place it here.")
-    exit(1)
+def log(message):
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}")
 
-# Load the dataset
-print("Loading dataset...")
-df = pd.read_csv('All_Diets.csv')
-print(f"Dataset loaded: {df.shape[0]} rows, {df.shape[1]} columns")
 
-# Display column names to verify structure
-print(f"Columns in dataset: {df.columns.tolist()}")
+def validate_columns(df, required_columns):
+    missing = [col for col in required_columns if col not in df.columns]
+    if missing:
+        log(f"ERROR: Missing required columns: {missing}")
+        sys.exit(1)
 
-# Handle missing values
-print("\nHandling missing values...")
-numeric_cols = ['Protein(g)', 'Carbs(g)', 'Fat(g)']
-for col in numeric_cols:
-    if col in df.columns:
+
+def main():
+    log("Starting nutritional analysis...")
+
+    dataset_path = "All_Diets.csv"
+    output_dir = "outputs"
+
+    # Ensure outputs directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Check dataset
+    if not os.path.exists(dataset_path):
+        log("ERROR: All_Diets.csv not found!")
+        log(f"Current directory: {os.getcwd()}")
+        sys.exit(1)
+
+    # Load dataset
+    log("Loading dataset...")
+    df = pd.read_csv(dataset_path)
+    log(f"Dataset loaded: {df.shape[0]} rows, {df.shape[1]} columns")
+    log(f"Columns detected: {df.columns.tolist()}")
+
+    # Validate required columns
+    required_columns = [
+        "Diet_type",
+        "Recipe_name",
+        "Cuisine_type",
+        "Protein(g)",
+        "Carbs(g)",
+        "Fat(g)"
+    ]
+    validate_columns(df, required_columns)
+
+    numeric_cols = ["Protein(g)", "Carbs(g)", "Fat(g)"]
+
+    # Handle missing values
+    log("Handling missing values...")
+    for col in numeric_cols:
         missing_count = df[col].isnull().sum()
         if missing_count > 0:
-            df[col].fillna(df[col].mean(), inplace=True)
-            print(f"Filled {missing_count} missing values in {col}")
+            df[col] = df[col].fillna(df[col].mean())
+            log(f"Filled {missing_count} missing values in {col}")
 
-# 1. Calculate average macronutrient content for each diet type
-print("\n1. Calculating average macronutrients by diet type...")
-avg_macros = df.groupby('Diet_type')[numeric_cols].mean().round(2)
-print(avg_macros)
-avg_macros.to_csv('outputs/avg_macros_by_diet.csv')
+    # 1️⃣ Average macronutrients by diet type
+    log("Calculating average macronutrients by diet type...")
+    avg_macros = df.groupby("Diet_type")[numeric_cols].mean().round(2)
+    print("\nAverage Macronutrients:\n", avg_macros)
+    avg_macros.to_csv(f"{output_dir}/avg_macros_by_diet.csv")
 
-# 2. Find top 5 protein-rich recipes for each diet type
-print("\n2. Top 5 protein-rich recipes by diet type:")
-top_protein = df.sort_values('Protein(g)', ascending=False).groupby('Diet_type').head(5)
-print(top_protein[['Diet_type', 'Recipe_name', 'Protein(g)']].head(10))
-top_protein.to_csv('outputs/top_protein_recipes.csv')
+    # 2️⃣ Top 5 protein recipes per diet
+    log("Finding top 5 protein-rich recipes per diet...")
+    top_protein = (
+        df.sort_values("Protein(g)", ascending=False)
+        .groupby("Diet_type")
+        .head(5)
+    )
+    top_protein.to_csv(f"{output_dir}/top_protein_recipes.csv")
 
-# 3. Find diet type with highest protein content
-highest_protein_diet = df.groupby('Diet_type')['Protein(g)'].mean().idxmax()
-highest_protein_value = df.groupby('Diet_type')['Protein(g)'].mean().max()
-print(f"\n3. Diet with highest average protein: {highest_protein_diet} ({highest_protein_value:.2f}g)")
+    # 3️⃣ Highest protein diet
+    protein_means = df.groupby("Diet_type")["Protein(g)"].mean()
+    highest_protein_diet = protein_means.idxmax()
+    highest_protein_value = protein_means.max()
+    log(
+        f"Diet with highest average protein: "
+        f"{highest_protein_diet} ({highest_protein_value:.2f}g)"
+    )
 
-# 4. Identify most common cuisines for each diet type
-print("\n4. Most common cuisines by diet type:")
-common_cuisines = df.groupby('Diet_type')['Cuisine_type'].agg(lambda x: x.mode().iloc[0] if not x.mode().empty else 'Unknown')
-print(common_cuisines)
+    # 4️⃣ Most common cuisines
+    log("Identifying most common cuisine per diet type...")
+    common_cuisines = (
+        df.groupby("Diet_type")["Cuisine_type"]
+        .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else "Unknown")
+    )
+    print("\nMost Common Cuisines:\n", common_cuisines)
 
-# 5. Create new metrics (ratios)
-print("\n5. Creating new metrics (protein/carbs and carbs/fat ratios)...")
-df['Protein_to_Carbs_ratio'] = df['Protein(g)'] / df['Carbs(g)'].replace(0, np.nan)
-df['Carbs_to_Fat_ratio'] = df['Carbs(g)'] / df['Fat(g)'].replace(0, np.nan)
-df['Protein_to_Fat_ratio'] = df['Protein(g)'] / df['Fat(g)'].replace(0, np.nan)
+    # 5️⃣ Create ratio metrics safely
+    log("Creating ratio metrics...")
+    df["Protein_to_Carbs_ratio"] = np.where(
+        df["Carbs(g)"] != 0,
+        df["Protein(g)"] / df["Carbs(g)"],
+        np.nan,
+    )
+    df["Carbs_to_Fat_ratio"] = np.where(
+        df["Fat(g)"] != 0,
+        df["Carbs(g)"] / df["Fat(g)"],
+        np.nan,
+    )
+    df["Protein_to_Fat_ratio"] = np.where(
+        df["Fat(g)"] != 0,
+        df["Protein(g)"] / df["Fat(g)"],
+        np.nan,
+    )
 
-# Replace infinite values
-df.replace([np.inf, -np.inf], np.nan, inplace=True)
-print("Ratios calculated and saved")
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-# VISUALIZATIONS
-print("\n6. Creating visualizations...")
+    # 6️⃣ Visualizations
+    log("Creating visualizations...")
+    sns.set_style("whitegrid")
 
-# Set style
-sns.set_style("whitegrid")
+    # --- Bar Charts + Heatmap ---
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig.suptitle("Nutritional Analysis by Diet Type", fontsize=16)
 
-# Create a figure with multiple subplots
-fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-fig.suptitle('Nutritional Analysis by Diet Type', fontsize=16, fontweight='bold')
+    # Protein
+    avg_macros["Protein(g)"].sort_values().plot.barh(ax=axes[0, 0])
+    axes[0, 0].set_title("Average Protein by Diet Type")
 
-# Bar chart for average protein
-ax1 = axes[0, 0]
-avg_protein = avg_macros['Protein(g)'].sort_values(ascending=False)
-colors = plt.cm.Blues(np.linspace(0.3, 0.9, len(avg_protein)))
-ax1.barh(avg_protein.index, avg_protein.values, color=colors)
-ax1.set_title('Average Protein by Diet Type', fontsize=14)
-ax1.set_xlabel('Average Protein (g)')
+    # Carbs
+    avg_macros["Carbs(g)"].sort_values().plot.barh(ax=axes[0, 1])
+    axes[0, 1].set_title("Average Carbs by Diet Type")
 
-# Bar chart for average carbs
-ax2 = axes[0, 1]
-avg_carbs = avg_macros['Carbs(g)'].sort_values(ascending=False)
-colors = plt.cm.Oranges(np.linspace(0.3, 0.9, len(avg_carbs)))
-ax2.barh(avg_carbs.index, avg_carbs.values, color=colors)
-ax2.set_title('Average Carbs by Diet Type', fontsize=14)
-ax2.set_xlabel('Average Carbs (g)')
+    # Fat
+    avg_macros["Fat(g)"].sort_values().plot.barh(ax=axes[1, 0])
+    axes[1, 0].set_title("Average Fat by Diet Type")
 
-# Bar chart for average fat
-ax3 = axes[1, 0]
-avg_fat = avg_macros['Fat(g)'].sort_values(ascending=False)
-colors = plt.cm.Greens(np.linspace(0.3, 0.9, len(avg_fat)))
-ax3.barh(avg_fat.index, avg_fat.values, color=colors)
-ax3.set_title('Average Fat by Diet Type', fontsize=14)
-ax3.set_xlabel('Average Fat (g)')
+    # Correlation heatmap
+    correlation = df[numeric_cols].corr()
+    sns.heatmap(
+        correlation,
+        annot=True,
+        cmap="coolwarm",
+        ax=axes[1, 1],
+        vmin=-1,
+        vmax=1,
+        center=0,
+    )
+    axes[1, 1].set_title("Macronutrient Correlation")
 
-# Heatmap for correlations
-ax4 = axes[1, 1]
-correlation = df[numeric_cols].corr()
-sns.heatmap(correlation, annot=True, cmap='coolwarm', ax=ax4, 
-            xticklabels=['Protein', 'Carbs', 'Fat'],
-            yticklabels=['Protein', 'Carbs', 'Fat'],
-            vmin=-1, vmax=1, center=0)
-ax4.set_title('Macronutrient Correlation Heatmap', fontsize=14)
+    plt.tight_layout()
+    plt.savefig(f"{output_dir}/macronutrient_analysis.png", dpi=300)
+    plt.close()
 
-plt.tight_layout()
-plt.savefig('outputs/macronutrient_analysis.png', dpi=300, bbox_inches='tight')
-print("Visualization saved: outputs/macronutrient_analysis.png")
+    # --- Scatter Plot ---
+    plt.figure(figsize=(14, 8))
+    top_50 = df.nlargest(50, "Protein(g)")
+    sns.scatterplot(
+        data=top_50,
+        x="Cuisine_type",
+        y="Protein(g)",
+        hue="Diet_type",
+        size="Protein(g)",
+        sizes=(50, 400),
+        alpha=0.7,
+    )
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig(f"{output_dir}/top_protein_scatter.png", dpi=300)
+    plt.close()
 
-# Scatter plot for top protein recipes
-plt.figure(figsize=(14, 8))
-top_50_protein = df.nlargest(50, 'Protein(g)')
-scatter = sns.scatterplot(data=top_50_protein, x='Cuisine_type', y='Protein(g)', 
-                          hue='Diet_type', size='Protein(g)', sizes=(50, 500),
-                          palette='Set1', alpha=0.7)
-plt.title('Top 50 Protein-Rich Recipes by Cuisine and Diet Type', fontsize=16, fontweight='bold')
-plt.xlabel('Cuisine Type')
-plt.ylabel('Protein (g)')
-plt.xticks(rotation=45, ha='right')
-plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-plt.tight_layout()
-plt.savefig('outputs/top_protein_scatter.png', dpi=300, bbox_inches='tight')
-print("Visualization saved: outputs/top_protein_scatter.png")
+    log("Analysis complete!")
+    log("All outputs saved in the 'outputs' folder.")
 
-print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Analysis complete!")
-print("All outputs saved in the 'outputs' folder")
+
+if __name__ == "__main__":
+    main()
