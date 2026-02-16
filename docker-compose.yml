@@ -1,0 +1,9 @@
+version: '3.8'
+services:
+  diet-analysis:
+    build: .
+    container_name: nutritional-analysis
+    volumes:
+      - ./outputs:/app/outputs
+    environment:
+      - PYTHONUNBUFFERED=1
